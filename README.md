@@ -220,6 +220,6 @@ MIT – Silakan digunakan, dimodifikasi, dan didistribusikan secara bebas.
 
 ## 🤝 Kontribusi
 
-Pull request, issue, dan saran sangat diterima. Silakan buka [halaman Issues](https://github.com/your-repo/hero-proxy-rewriter/issues) untuk melaporkan bug atau meminta fitur.
+Pull request, issue, dan saran sangat diterima. Silakan buka [halaman Issues](https://github.com/Aerty-G/hero-proxy-rewriter/issues) untuk melaporkan bug atau meminta fitur.
 
 ---
