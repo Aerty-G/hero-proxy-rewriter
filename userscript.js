@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Hero Proxy Rewriter + Dashboard Pro
 // @namespace    http://tampermonkey.net/
-// @version      3.2.0
+// @version      3.2.1
 // @author       AertyGouchin
-// @description  Advanced proxy rewriter with custom selectors, private host exclusion, stats, multi-language, AdBlock rules.
+// @description  Advanced proxy rewriter with custom selectors, private host exclusion, stats, multi-language, improved AdBlock logic.
 // @match        *://*/*
 // @run-at       document-start
 // @grant        GM_setValue
@@ -15,6 +15,15 @@
 
   const STORAGE_KEY = 'hero_proxy_rewriter_global';
   const OVERRIDE_FLAG = '__heroProxyOverrideInstalled_v3';
+
+  if (typeof RegExp.escape !== 'function') {
+    RegExp.escape = (function() {
+      const escaped = /[\\^$*+?.()|[\]{}]/g;
+      return function(str) {
+        return String(str).replace(escaped, '\\$&');
+      };
+    })();
+  }
 
   // ---------- helpers ----------
   function gmGet(key, defaultVal = null) {
@@ -63,7 +72,7 @@
     dragMoved: false,
     toastTimer: null,
     compiledAdblockRules: null,
-    customSelectorEntries: [],   // {selector, attr}
+    customSelectorEntries: [],
     stats: {
       rewrittenCount: 0,
       lastRewriteTime: null,
@@ -84,7 +93,7 @@
     gmSet(STORAGE_KEY, JSON.stringify(state.settings));
   }
 
-  // ---------- Translations (Currently ID & EN) ----------
+  // ---------- Translations (ID & EN) ----------
   const TRANSLATIONS = {
     en: {
       proxyBase: "Proxy Base URL",
@@ -123,7 +132,7 @@
       resetBtn: "🔄 Reset",
       rulesTitle: "Use <strong>AdBlock-style rules</strong> (only when Target Type = AdBlock rules).",
       rulesPlaceholder: "||example.com^\n@@||exclude.example.com^\n/image/.*\\.jpg",
-      rulesHelp: "One rule per line. Start with <code>@@</code> to exclude. Supports <code>||</code>, <code>^</code>, <code>*</code>, regex (<code>/.../</code>). If no include rules, all URLs proxied except exclusions.",
+      rulesHelp: "One rule per line. <code>||domain.com^</code> (match domain). <code>@@</code> for exception. Supports <code>*</code>, <code>^</code>, regex (<code>/.../</code>). If no include rules, no URL will be proxied.",
       applyRulesBtn: "💾 Apply Rules",
       statsTitle: "Statistics",
       totalRewrites: "Total Rewrites",
@@ -131,16 +140,20 @@
       uniqueHosts: "Unique Hosts",
       hostList: "Host list",
       resetStatsBtn: "🗑️ Reset Stats",
-      helpTitle: "Help",
-      helpProxy: "<strong>Proxy Base URL</strong> – Your proxy endpoint.",
-      helpMode: "<strong>Mode</strong> – <em>Images only</em>: rewrite image URLs only. <em>Specific URLs</em>: all matching URLs. <em>Both</em>: images + all.",
-      helpTarget: "<strong>Target Type</strong> – <em>Domain</em>: match exact/subdomain. <em>Keyword</em>: match keyword in URL. <em>All</em>: ignore targeting. <em>AdBlock rules</em>: use filter syntax.",
-      helpPrivate: "<strong>Exclude private/local</strong> – Skip localhost, 127.0.0.1, .local, .test, private IPs. Safe to enable.",
-      helpAdblock: "<strong>AdBlock syntax</strong> – <code>||domain.com^</code> (match domain), <code>@@</code> for exception, <code>*</code> wildcard, <code>^</code> separator, <code>/regex/</code>.",
-      helpCustomSelectors: "<strong>Custom Selectors</strong> – Define custom CSS selectors to target specific elements/attributes (e.g., <code>.bg-img|data-bg</code>). The attribute after <code>|</code> will be rewritten. Default attribute is <code>src</code>.",
-      helpTransform: "<strong>Transformation</strong> – Extra query params sent to proxy (quality, format, etc).",
-      helpApply: "Click <strong>Apply</strong> to save and activate.",
-      helpRelative: "<strong>Relative URLs</strong> – Automatically resolved to absolute using the page base (including <code>&lt;base&gt;</code> tag).",
+      helpTitle: "Help & Examples",
+      helpIntro: "<strong>Hero Proxy Rewriter</strong> rewrites image/URL sources to go through your proxy. It intercepts requests before the browser loads them, eliminating double loading.",
+      helpProxy: "<strong>1. Proxy Base URL</strong><br>Enter your proxy endpoint, e.g. <code class='hp-example'>https://images.weserv.nl/</code>. Leave empty to disable.",
+      helpMode: "<strong>2. Mode</strong><br><em>Images only</em>: rewrite only image URLs (by extension). <em>Specific URLs</em>: rewrite any matching URL. <em>Both</em>: images + all.",
+      helpTarget: "<strong>3. Target Type</strong><br><em>Domain</em>: match exact hostname or subdomain.<br><em>Keyword</em>: match a keyword anywhere in the URL.<br><em>All</em>: ignore targeting (rewrite everything).<br><em>AdBlock rules</em>: use filter syntax.",
+      helpPrivate: "<strong>4. Exclude local/private IP</strong><br>Automatically skip localhost, 127.0.0.1, .local, .test, private IPs. Safe to enable.",
+      helpAdblock: "<strong>5. AdBlock Syntax</strong><br><code class='hp-example'>||example.com^</code> → match example.com (including subdomains).<br><code class='hp-example'>@@||example.com/logo.svg^</code> → exclude that specific URL.<br><code class='hp-example'>*://*.google.com/images/*</code> → wildcard match.<br><code class='hp-example'>/thumbnail/</code> → regex literal (match anywhere).",
+      helpCustomSelectors: "<strong>6. Custom Selectors</strong><br>Define CSS selectors + attribute to rewrite, e.g. <code class='hp-example'>.hero-bg|data-bg</code>. One per line. Default attribute is <code>src</code>.",
+      helpTransform: "<strong>7. Transformation</strong><br>Extra query params sent to the proxy (quality, format, grayscale, etc).",
+      helpApply: "<strong>8. Apply</strong> – Click <strong>Apply</strong> to save and activate changes.",
+      helpExamplesTitle: "📋 Usage Examples",
+      helpExample1: "<strong>Proxy all images on a site:</strong><br>Mode: <em>Images only</em> · Target Type: <em>Domain</em> · Targets: <code>example.com</code>",
+      helpExample2: "<strong>Proxy images except logo:</strong><br>Target Type: <em>AdBlock rules</em><br>Rules:<br><code>||example.com^</code><br><code>@@||example.com/logo.svg^</code>",
+      helpExample3: "<strong>Rewrite custom attribute:</strong><br>Custom Selectors: <code>.lazy-img|data-original</code>",
       statusText: (enabled, mode, target) => `Status: ${enabled ? 'active' : 'inactive'} • mode=${mode} • target=${target}`,
       toastSaved: "✅ Saved & applied",
       toastScanned: "🔍 Scan complete",
@@ -186,7 +199,7 @@
       resetBtn: "🔄 Reset",
       rulesTitle: "Gunakan <strong>aturan gaya AdBlock</strong> (hanya saat Tipe Target = Aturan AdBlock).",
       rulesPlaceholder: "||contoh.com^\n@@||kecualikan.contoh.com^\n/gambar/.*\\.jpg",
-      rulesHelp: "Satu aturan per baris. Awali <code>@@</code> untuk mengecualikan. Mendukung <code>||</code>, <code>^</code>, <code>*</code>, regex (<code>/.../</code>). Jika tidak ada aturan include, semua URL diproxy kecuali yang dikecualikan.",
+      rulesHelp: "Satu aturan per baris. <code>||domain.com^</code> (cocokkan domain). <code>@@</code> untuk pengecualian. Mendukung <code>*</code>, <code>^</code>, regex (<code>/.../</code>). Jika tidak ada aturan include, tidak ada URL yang diproxy.",
       applyRulesBtn: "💾 Simpan Aturan",
       statsTitle: "Statistik",
       totalRewrites: "Total Pengalihan",
@@ -194,16 +207,20 @@
       uniqueHosts: "Host Unik",
       hostList: "Daftar host",
       resetStatsBtn: "🗑️ Reset Statistik",
-      helpTitle: "Bantuan",
-      helpProxy: "<strong>URL Proxy Dasar</strong> – Alamat proxy Anda.",
-      helpMode: "<strong>Mode</strong> – <em>Gambar saja</em>: hanya ubah URL gambar. <em>URL tertentu</em>: ubah semua URL yang cocok target. <em>Keduanya</em>: gambar + semua.",
-      helpTarget: "<strong>Tipe Target</strong> – <em>Domain</em>: cocokkan hostname/subdomain. <em>Kata kunci</em>: cari kata di URL. <em>Semua</em>: abaikan target. <em>Aturan AdBlock</em>: gunakan sintaks filter.",
-      helpPrivate: "<strong>Kecualikan IP lokal/privat</strong> – Lewati localhost, 127.0.0.1, .local, .test, IP privat. Aman diaktifkan.",
-      helpAdblock: "<strong>Sintaks AdBlock</strong> – <code>||domain.com^</code> (cocokkan domain), <code>@@</code> untuk pengecualian, <code>*</code> wildcard, <code>^</code> pemisah, <code>/regex/</code>.",
-      helpCustomSelectors: "<strong>Selector Kustom</strong> – Tentukan selector CSS untuk menarget elemen/atribut tertentu (mis., <code>.bg-img|data-bg</code>). Atribut setelah <code>|</code> akan ditulis ulang. Atribut default adalah <code>src</code>.",
-      helpTransform: "<strong>Transformasi</strong> – Parameter ekstra dikirim ke proxy (kualitas, format, dll).",
-      helpApply: "Klik <strong>Terapkan</strong> untuk menyimpan dan mengaktifkan.",
-      helpRelative: "<strong>URL Relatif</strong> – Otomatis di-resolve ke absolute menggunakan base halaman (termasuk tag <code>&lt;base&gt;</code>).",
+      helpTitle: "Bantuan & Contoh",
+      helpIntro: "<strong>Hero Proxy Rewriter</strong> menulis ulang sumber gambar/URL agar melewati proxy Anda. Ia mencegat permintaan sebelum browser memuatnya, menghilangkan double loading.",
+      helpProxy: "<strong>1. URL Proxy Dasar</strong><br>Masukkan endpoint proxy Anda, mis. <code class='hp-example'>https://images.weserv.nl/</code>. Kosongkan untuk menonaktifkan.",
+      helpMode: "<strong>2. Mode</strong><br><em>Gambar saja</em>: hanya tulis ulang URL gambar (berdasarkan ekstensi). <em>URL tertentu</em>: tulis ulang semua URL yang cocok. <em>Keduanya</em>: gambar + semua.",
+      helpTarget: "<strong>3. Tipe Target</strong><br><em>Domain</em>: cocokkan nama host persis atau subdomain.<br><em>Kata kunci</em>: cocokkan kata kunci di mana saja dalam URL.<br><em>Semua</em>: abaikan penargetan (tulis ulang semuanya).<br><em>Aturan AdBlock</em>: gunakan sintaks filter.",
+      helpPrivate: "<strong>4. Kecualikan IP lokal/privat</strong><br>Otomatis lewati localhost, 127.0.0.1, .local, .test, IP privat. Aman diaktifkan.",
+      helpAdblock: "<strong>5. Sintaks AdBlock</strong><br><code class='hp-example'>||contoh.com^</code> → cocokkan contoh.com (termasuk subdomain).<br><code class='hp-example'>@@||contoh.com/logo.svg^</code> → kecualikan URL tersebut.<br><code class='hp-example'>*://*.google.com/images/*</code> → wildcard.<br><code class='hp-example'>/thumbnail/</code> → regex literal (cocok di mana saja).",
+      helpCustomSelectors: "<strong>6. Selector Kustom</strong><br>Tentukan selector CSS + atribut untuk ditulis ulang, mis. <code class='hp-example'>.hero-bg|data-bg</code>. Satu per baris. Atribut default adalah <code>src</code>.",
+      helpTransform: "<strong>7. Transformasi</strong><br>Parameter tambahan yang dikirim ke proxy (kualitas, format, hitam-putih, dll).",
+      helpApply: "<strong>8. Terapkan</strong> – Klik <strong>Terapkan</strong> untuk menyimpan dan mengaktifkan perubahan.",
+      helpExamplesTitle: "📋 Contoh Penggunaan",
+      helpExample1: "<strong>Proxy semua gambar di situs:</strong><br>Mode: <em>Gambar saja</em> · Tipe Target: <em>Domain</em> · Target: <code>contoh.com</code>",
+      helpExample2: "<strong>Proxy gambar kecuali logo:</strong><br>Tipe Target: <em>Aturan AdBlock</em><br>Aturan:<br><code>||contoh.com^</code><br><code>@@||contoh.com/logo.svg^</code>",
+      helpExample3: "<strong>Tulis ulang atribut kustom:</strong><br>Selector Kustom: <code>.lazy-img|data-original</code>",
       statusText: (enabled, mode, target) => `Status: ${enabled ? 'aktif' : 'nonaktif'} • mode=${mode} • target=${target}`,
       toastSaved: "✅ Disimpan & diterapkan",
       toastScanned: "🔍 Scan selesai",
@@ -241,13 +258,14 @@
       if (line.startsWith('/') && line.endsWith('/') && line.length > 2) {
         try { regex = new RegExp(line.slice(1, -1), 'i'); } catch (e) { continue; }
       } else {
-        const hasDomainAnchor = line.startsWith('||');
-        let ruleBody = hasDomainAnchor ? line.substring(2) : line;
-        let escaped = ruleBody.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+        let pattern = line;
+        const hasDomainAnchor = pattern.startsWith('||');
+        if (hasDomainAnchor) pattern = pattern.substring(2);
+        let escaped = RegExp.escape(pattern);
         escaped = escaped.replace(/\\\*/g, '.*');
         escaped = escaped.replace(/\\\^/g, '(?:[\\/?#]|$)');
-        const pattern = hasDomainAnchor ? '^https?://(?:[a-z0-9-]+\\.)*' + escaped : escaped;
-        try { regex = new RegExp(pattern, 'i'); } catch (e) { continue; }
+        const finalPattern = hasDomainAnchor ? '^https?:\\/\\/(?:[a-z0-9-]+\\.)*' + escaped : escaped;
+        try { regex = new RegExp(finalPattern, 'i'); } catch (e) { continue; }
       }
       if (regex) compiled.push({ regex, exclude });
     }
@@ -261,7 +279,7 @@
       if (rule.exclude && rule.regex.test(href)) return false;
     }
     const includeRules = state.compiledAdblockRules.filter(r => !r.exclude);
-    if (includeRules.length === 0) return true;
+    if (includeRules.length === 0) return false; 
     for (const rule of includeRules) {
       if (rule.regex.test(href)) return true;
     }
@@ -298,9 +316,15 @@
   function tryParseUrlAbsolute(val, base) {
     if (!val) return null;
     try {
-      const url = new URL(val, base);
+      const effectiveBase = base || (typeof document !== 'undefined' && document.baseURI) || location.href;
+      const url = new URL(val, effectiveBase);
       if (url.protocol === 'http:' || url.protocol === 'https:') return url;
-    } catch (e) {}
+    } catch (e) {
+      try {
+        const url = new URL(val);
+        if (url.protocol === 'http:' || url.protocol === 'https:') return url;
+      } catch (e2) {}
+    }
     return null;
   }
   function isAlreadyProxied(url) {
@@ -325,12 +349,8 @@
   }
   function shouldRewriteUrl(raw, skipProxiedCheck = false, base = null) {
     if (!raw) return false;
-    let urlObj = tryParseUrlAbsolute(raw, base || undefined);
-    if (!urlObj) {
-      base = base || (typeof document !== 'undefined' && document.baseURI) || location.href;
-      urlObj = tryParseUrlAbsolute(raw, base);
-      if (!urlObj) return false;
-    }
+    let urlObj = tryParseUrlAbsolute(raw, base);
+    if (!urlObj) return false;
     if (state.settings.excludePrivateHosts && isPrivateHost(urlObj)) return false;
     if (!skipProxiedCheck && state.settings.excludeAlreadyProxied && isAlreadyProxied(urlObj.href)) return false;
     return matchesTarget(urlObj);
@@ -339,12 +359,8 @@
     return /\.(png|jpe?g|gif|webp|bmp|svg|avif)(\?|#|$)/i.test(String(url || ''));
   }
   function buildProxyUrl(rawUrl, base = null) {
-    let absoluteUrl = rawUrl;
-    if (!isAbsoluteHttpUrl(rawUrl)) {
-      base = base || (typeof document !== 'undefined' && document.baseURI) || location.href;
-      const resolved = tryParseUrlAbsolute(rawUrl, base);
-      if (resolved) absoluteUrl = resolved.href;
-    }
+    const resolved = tryParseUrlAbsolute(rawUrl, base);
+    const absoluteUrl = resolved ? resolved.href : rawUrl;
     const baseProxy = state.settings.proxyBase || '';
     let url = baseProxy + '?url=' + encodeURIComponent(absoluteUrl);
     const params = [];
@@ -489,9 +505,7 @@
         if (el.matches(entry.selector)) {
           processAttrUrl(el, entry.attr, base);
         }
-      } catch (e) {
-        // selector invalid
-      }
+      } catch (e) {}
     }
   }
 
@@ -638,7 +652,7 @@
     state.toastTimer = setTimeout(() => { toast.style.opacity = '0'; state.toastTimer = null; }, 2200);
   }
 
-  // ---------- UI ----------
+  // ---------- UI (Dashboard) ----------
   function createUI() {
     if (window.top !== window.self) return;
     if (state.ui) {
@@ -665,7 +679,7 @@
 
     const panelContainer = document.createElement('div');
     panelContainer.id = 'hp-panel-container';
-    panelContainer.style.cssText = `position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2147483647;width:500px;max-width:calc(100vw - 24px);max-height:90vh;background:rgba(17,24,39,.97);border-radius:16px;border:1px solid rgba(255,255,255,.08);box-shadow:0 20px 50px rgba(0,0,0,.6);color:#e5e7eb;font-family:system-ui;display:none;overflow:hidden;flex-direction:column;`;
+    panelContainer.style.cssText = `position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2147483647;width:520px;max-width:calc(100vw - 24px);max-height:90vh;background:#111827;border-radius:16px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 20px 50px rgba(0,0,0,.6);color:#e5e7eb;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;display:none;overflow:hidden;flex-direction:column;`;
     panelContainer.style.display = 'none';
     document.documentElement.appendChild(panelContainer);
 
@@ -673,7 +687,28 @@
       const L = TRANSLATIONS[lang] || TRANSLATIONS['en'];
       return `
       <style>
-        #hp-panel-container * { box-sizing:border-box; }
+        #hp-panel-container, #hp-panel-container * {
+          box-sizing:border-box;
+          color:#e5e7eb;
+          font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;
+        }
+        #hp-panel-container h3, #hp-panel-container h4, #hp-panel-container p, #hp-panel-container label, #hp-panel-container li {
+          color:#e5e7eb;
+        }
+        #hp-panel-container .hp-example {
+          background:#1e293b;
+          padding:2px 5px;
+          border-radius:4px;
+          font-family:monospace;
+          color:#fbbf24;
+        }
+        #hp-panel-container code {
+          background:#1e293b;
+          padding:1px 4px;
+          border-radius:4px;
+          font-size:11px;
+          color:#fbbf24;
+        }
         #hp-tab-nav {
           display:flex; border-bottom:1px solid rgba(255,255,255,.1); background:#0b1220;
           padding:0 10px;
@@ -712,8 +747,8 @@
         .hp-stats { font-size:13px; }
         .hp-stats ul { list-style:none; padding:0; }
         .hp-stats li { margin-bottom:4px; }
-        .hp-help p { font-size:12px; line-height:1.5; margin-bottom:6px; }
-        .hp-help code { background:#1e293b; padding:1px 4px; border-radius:4px; font-size:11px; }
+        .hp-help p { font-size:12px; line-height:1.6; margin-bottom:8px; }
+        .hp-help strong { color:#e2e8f0; }
         #hp-adblockRules { width:100%; box-sizing:border-box; }
       </style>
       <div id="hp-tab-nav">
@@ -770,7 +805,7 @@
         </div>
         <div class="hp-tab-panel" data-panel="rules">
           <div class="hp-section">
-            <p style="font-size:12px;margin-bottom:8px;">${L.rulesTitle}</p>
+            <p style="font-size:12px;margin-bottom:8px;color:#e5e7eb;">${L.rulesTitle}</p>
             <textarea id="hp-adblockRules" style="min-height:150px;" placeholder="${L.rulesPlaceholder}"></textarea>
             <p style="font-size:11px;color:#94a3b8;margin-top:6px;">${L.rulesHelp}</p>
           </div>
@@ -781,18 +816,20 @@
         <div class="hp-tab-panel" data-panel="stats">
           <div class="hp-stats">
             <ul>
-              <li>${L.totalRewrites}: <strong id="hp-stat-count">0</strong></li>
-              <li>${L.lastRewrite}: <span id="hp-stat-time">-</span></li>
-              <li>${L.uniqueHosts}: <strong id="hp-stat-hosts">0</strong></li>
+              <li>${L.totalRewrites}: <strong id="hp-stat-count" style="color:#fbbf24;">0</strong></li>
+              <li>${L.lastRewrite}: <span id="hp-stat-time" style="color:#e5e7eb;">-</span></li>
+              <li>${L.uniqueHosts}: <strong id="hp-stat-hosts" style="color:#fbbf24;">0</strong></li>
             </ul>
             <details style="margin-top:8px;">
-              <summary style="font-size:12px;cursor:pointer;">${L.hostList}</summary>
+              <summary style="font-size:12px;cursor:pointer;color:#e5e7eb;">${L.hostList}</summary>
               <ul id="hp-stat-hostlist" style="font-size:11px;max-height:150px;overflow-y:auto;margin-top:4px;"></ul>
             </details>
             <button class="secondary" id="hp-reset-stats" style="margin-top:8px;">${L.resetStatsBtn}</button>
           </div>
         </div>
         <div class="hp-tab-panel hp-help" data-panel="help">
+          <p style="font-size:13px;font-weight:600;color:#fbbf24;">${L.helpTitle}</p>
+          <p>${L.helpIntro}</p>
           <p>${L.helpProxy}</p>
           <p>${L.helpMode}</p>
           <p>${L.helpTarget}</p>
@@ -801,7 +838,11 @@
           <p>${L.helpCustomSelectors}</p>
           <p>${L.helpTransform}</p>
           <p>${L.helpApply}</p>
-          <p style="margin-top:8px;">${L.helpRelative}</p>
+          <hr style="border-color:rgba(255,255,255,.1);margin:12px 0;">
+          <p style="font-size:13px;font-weight:600;color:#fbbf24;">${L.helpExamplesTitle}</p>
+          <p>${L.helpExample1}</p>
+          <p>${L.helpExample2}</p>
+          <p>${L.helpExample3}</p>
         </div>
       </div>`;
     }
@@ -846,7 +887,7 @@
         document.getElementById('hp-stat-hosts').textContent = state.stats.uniqueHosts.size;
         const hostList = document.getElementById('hp-stat-hostlist');
         if (hostList) {
-          hostList.innerHTML = Array.from(state.stats.uniqueHosts).slice(0, 50).map(h => `<li>${h}</li>`).join('');
+          hostList.innerHTML = Array.from(state.stats.uniqueHosts).slice(0, 50).map(h => `<li style="color:#e5e7eb;">${h}</li>`).join('');
         }
       }
 
@@ -1075,8 +1116,8 @@
 
   // ---------- Boot ----------
   function boot() {
-    if (document.documentElement.dataset.heroProxyV320) return;
-    document.documentElement.dataset.heroProxyV320 = '1';
+    if (document.documentElement.dataset.heroProxyV321) return;
+    document.documentElement.dataset.heroProxyV321 = '1';
 
     applyAll();
 
