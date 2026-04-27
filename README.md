@@ -21,7 +21,7 @@ Userscript canggih untuk menulis ulang sumber gambar/URL agar melewati proxy pil
 
 ## 📥 Instalasi
 
-1. Pastikan Anda memiliki ekstensi **Tampermonkey** (atau Violentmonkey) di browser.
+1. Pastikan kamu memiliki ekstensi **Tampermonkey** (atau Violentmonkey) di browser.
 2. Buka script di [raw GitHub](https://raw.githubusercontent.com/Aerty-G/hero-proxy-rewriter/refs/heads/main/userscript.js).
 3. Klik ikon Tampermonkey → **Buat skrip baru***, tempelkan kode, lalu simpan.
 4. Muat ulang halaman target. Tombol ⚙ akan muncul di sudut kanan bawah.
